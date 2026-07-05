@@ -1,0 +1,7 @@
+# Local environment config — copy agent-lock.config.example.sh -> agent-lock.config.sh
+# and edit. (Scripts also find it via the nearest agent-lock.config.sh up the tree,
+# so it may instead live outside the kit.)
+agent-lock.config.sh
+
+# Optional local scratch dir (whatever you set SCRATCH_DIR to; see CONFIG.md).
+scratch/
