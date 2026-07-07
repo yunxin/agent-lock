@@ -87,7 +87,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 LOCK_BRANCH="lock/agent"
 WORK_PATTERN='^work/'                            # acquire precondition (regex)
-OWNER_FILE=".git/agent-lock-owner"               # ownership / abort-recovery record
+# Ownership / abort-recovery record, resolved through git so subdir runs
+# and linked worktrees do not write to a literal cwd/.git path.
+OWNER_FILE="$(git rev-parse --git-path agent-lock-owner 2>/dev/null || printf '%s' '.git/agent-lock-owner')"
 STALE_MIN="${AGENT_LOCK_STALE_MIN:-60}"          # age (min) past which a held lock is "likely abandoned"
 
 usage() {
