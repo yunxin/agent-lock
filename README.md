@@ -16,7 +16,7 @@ top of it.
 Written for AI coding agents (the docs are meant to be referenced
 mid-task), but equally usable as a human checklist.
 
-[agent-term](https://github.com/yunxin/agent-term) understands the lock out of
+[agent-term](https://github.com/albertwujj/agent-term) understands the lock out of
 the box — it shows which agent holds the checkout, live in the terminal.
 
 ## Layout
