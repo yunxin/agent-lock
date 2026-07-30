@@ -30,6 +30,21 @@ committed):
 is clean — so another task can't release your lock, and an aborted session
 can't be silently released out from under recovery.
 
+### Reading the lock from outside (monitors, status lines)
+
+Held-ness is **the ref existing** — nothing else. A monitor that infers it
+from the owner record's `pid` reports "no lock held" for almost every
+agent-held lock: each tool call runs in its own short-lived shell, so the
+shell that ran `acquire` is typically dead within seconds while the lock is
+perfectly valid. Use `boot` to judge whether an owner is gone; read `pid` only
+as a human diagnostic.
+
+The symptom of getting this wrong is a spurious "uncommitted changes with no
+lock held" warning during an ordinary edit window. Confirm before acting:
+`agent-lock.sh status` showing no `STALE:` hint, plus a `boot` matching
+`/proc/sys/kernel/random/boot_id`, means the lock is held and healthy — a dead
+`pid` alongside those is expected, not evidence of an orphan.
+
 ## On collision (`LOCK HELD: …`)
 
 `acquire`/`status` print the owner and, when the holder looks gone, a
