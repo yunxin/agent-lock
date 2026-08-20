@@ -74,13 +74,11 @@ and [`lock-mechanics.md`](lock-mechanics.md).
 
 A push/CI workflow reuses the same primitives: it starts from
 `proceed-by-branching.md`, then re-acquires `lock/agent` around each of
-its own resource phases (pushing a patchset, running a local suite) and
+its own resource phases (pushing a change, running a local suite) and
 releases it for long remote waits. It locates these scripts via an
 `AGENT_LOCK_DIR` it sets, or by putting them on `PATH`.
 
-[agent-cicd](https://github.com/albertwujj/agent-cicd) is a reference
-implementation of exactly this — a Gerrit/Jenkins/SonarQube push→green
-loop built on these primitives. Optional; agent-lock stands alone with
-any (or no) push/CI workflow. (This note is for maintainers/discovery —
+Such a workflow is optional; agent-lock stands alone with any (or no)
+push/CI workflow. (This note is for maintainers/discovery —
 `proceed-by-branching.md` carries the runtime handoff, so an agent never
 needs this README mid-task.)

@@ -86,14 +86,14 @@ working on `work/<slug>`.
 
 Then carry out the task, and **hand off to your push/CI workflow** for
 everything past the local edits — committing, pushing, and driving CI to
-green. If you pair this with the companion **agent-cicd** kit, that is
-where this phase lives: enter through its entry runbook (a kit's
-verb-named runbook, as this doc is for this kit) and follow it from there
+green. If you pair this with a push/CI kit, that is where this phase
+lives: enter through its entry runbook (a kit's verb-named runbook, as
+this doc is for this kit) and follow it from there
 — the kit owns its own runbooks and commit conventions. **Where more than
 one guide could apply, the closest, most-specific one wins** — the same
 nearest-first rule as the `coding-guide.md` handoff above. That workflow
 re-acquires the same lock around its own resource phases
-(pushing a patchset, running a local suite) and releases it for long
+(pushing a change, running a local suite) and releases it for long
 remote waits — same discipline, reused.
 
 To pause locally, commit WIP to `work/<slug>` (or `git stash`), release
