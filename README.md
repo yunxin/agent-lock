@@ -23,6 +23,7 @@ the box — it shows which agent holds the checkout, live in the terminal.
 
 ```
 proceed-by-branching.md     # RUNBOOK — branch -> acquire -> work -> release (the entry point)
+borrow-checkout.md          # RUNBOOK — rare: take a checkout parked on another branch, hand it back
 lock-mechanics.md           # REFERENCE — ownership, staleness, reclaim, orphan diagnosis
 CONFIG.md                   # REFERENCE — the three config knobs
 agent-lock.config.example.sh
