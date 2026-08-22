@@ -24,7 +24,7 @@ the box — it shows which agent holds the checkout, live in the terminal.
 ```
 proceed-by-branching.md     # RUNBOOK — branch -> acquire -> work -> release (the entry point)
 borrow-checkout.md          # RUNBOOK — rare: take a checkout parked on another branch, hand it back
-lock-mechanics.md           # REFERENCE — ownership, staleness, reclaim, orphan diagnosis
+lock-mechanics.md           # REFERENCE — ownership, collision, reclaim
 CONFIG.md                   # REFERENCE — the three config knobs
 agent-lock.config.example.sh
 scripts/
@@ -52,7 +52,7 @@ scripts also run with no config at all.
 | Piece | File | Role |
 |---|---|---|
 | Lock | [`scripts/agent-lock.sh`](scripts/agent-lock.sh) | `lock/agent` flag ref = "a task owns the tree / a host-global resource". Created at `HEAD` **without** moving it. Atomic ref creation = mutual exclusion in one checkout. `acquire` / `release` / `status` / `reclaim`. |
-| Ownership / abort recovery | same | Owner record (`branch`, `nonce`, boot id, timestamp, pid) → ownership-guarded `release`, stale detection (reboot or age), user-gated `reclaim --confirmed`. See [`lock-mechanics.md`](lock-mechanics.md). |
+| Ownership / abort recovery | same | Owner record (`branch`, `nonce`, session token, timestamp, pid) → ownership-guarded `release`, user-gated `reclaim --confirmed` (breaks the lock; never re-acquires). No staleness heuristic: a held lock is a fact, "abandoned" is the user's call. See [`lock-mechanics.md`](lock-mechanics.md). |
 | `HEAD` guard | [`scripts/assert-head.sh`](scripts/assert-head.sh) | Fail-closed check that `HEAD` is on the expected branch (+ optional SHA) before any amend/reset/push. Pair with an explicit-refspec push. |
 | Guarded switch | [`scripts/switch-work.sh`](scripts/switch-work.sh) | Refuses to switch/create a branch while the lock is held or the tree is dirty. |
 

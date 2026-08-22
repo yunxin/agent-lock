@@ -34,5 +34,10 @@ vars directly instead.
 
 | Variable | What it is | Default |
 |---|---|---|
-| `AGENT_LOCK_STALE_MIN` | Age in minutes past which a held lock is flagged `STALE` (likely abandoned). | `60` |
 | `AGENT_LOCK_CONFIG` | Explicit path to the config file, bypassing the nearest-ancestor search. | _unset_ |
+
+## Read, not set
+
+| Variable | What it is |
+|---|---|
+| `AGENT_SESSION_ID` | A terminal host's per-session token (agent-term sets it on every shell it spawns). `acquire` records it as `session=` in the owner file; `release` refuses a different session when both sides carry one. Absent without a host, and nothing requires it. |

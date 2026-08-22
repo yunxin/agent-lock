@@ -40,15 +40,13 @@ move `HEAD` at all.
 ## 2. Record the parked branch durably
 
 Your session spans many short-lived shells, so a shell variable will not
-survive. Write it down:
+survive. Write it down where the lock keeps its own record, inside `.git`
+(never an untracked file the tree guards would then trip over):
 
 ```bash
-git symbolic-ref --short HEAD > "$SCRATCH_DIR/.parked-branch"
-git rev-parse HEAD               > "$SCRATCH_DIR/.parked-sha"
+PARKED=$(git rev-parse --git-path agent-lock-parked)
+{ git symbolic-ref --short HEAD; git rev-parse HEAD; } > "$PARKED"   # line 1 branch, line 2 sha
 ```
-
-With no `SCRATCH_DIR` set, use any path outside the repo — never an untracked
-file the tree guards would then trip over.
 
 ---
 
@@ -60,25 +58,17 @@ guards working as intended. `reclaim` is the only sanctioned break; never
 
 ```bash
 git rebase --abort 2>/dev/null || true     # if the holder stopped mid-rebase
-scripts/agent-lock.sh reclaim --confirmed  # owner = the parked branch
-scripts/agent-lock.sh release              # yours now, so you may release it
-scripts/switch-work.sh "work/<slug>"       # the guard allows this once free
+scripts/agent-lock.sh reclaim --confirmed  # break: lock free, HEAD still on theirs
+scripts/switch-work.sh -c "work/<slug>" "$TARGET_BRANCH"   # fresh branch; omit -c for an existing one
 scripts/agent-lock.sh acquire              # owner = work/<slug>
 ```
 
-`reclaim` re-acquires for whichever branch `HEAD` is on, and that is still
-theirs — hence the release-switch-acquire tail, which puts ownership on the
-branch you actually edit. Skip it and the record names their branch, so
-`status`, and any monitor reading it, reports the lock as owned by an unrelated
-task; the next reader, including you next turn, sees a collision that isn't
-there and stops.
+`reclaim` breaks the lock and stops; the owner record is written by your
+own `acquire`, on the branch you actually edit.
 
-A `STALE:` hint changes nothing here. A holder that went quiet minutes ago shows
-none, and the judgement the hint exists to support is the one the user already
-made by sending you.
-
-The lock is briefly free between `release` and `acquire`. If `acquire` collides
-there, someone else took it: switch back to the parked branch and back off.
+The lock is briefly free between `reclaim` and `acquire`. If `acquire`
+collides there, someone else took it: switch back to the parked branch and
+back off.
 
 ---
 
@@ -91,10 +81,11 @@ Release **while still on your own branch** — `release` refuses from any other 
 then restore what you found:
 
 ```bash
+PARKED=$(git rev-parse --git-path agent-lock-parked)
 scripts/agent-lock.sh release
-scripts/switch-work.sh "$(cat "$SCRATCH_DIR/.parked-branch")"
-scripts/assert-head.sh "$(cat "$SCRATCH_DIR/.parked-branch")" \
-                       "$(cat "$SCRATCH_DIR/.parked-sha")"
+scripts/switch-work.sh "$(sed -n 1p "$PARKED")"
+scripts/assert-head.sh "$(sed -n 1p "$PARKED")" "$(sed -n 2p "$PARKED")"
+rm -f "$PARKED"
 ```
 
 The `assert-head.sh` call is the proof you handed it back unchanged: same

@@ -79,10 +79,11 @@ commit or `git stash` WIP first).
 
 **The rule for the whole cycle: hold `lock/agent` whenever you touch the
 working tree or a host-global resource — edit, local test, commit, rebase,
-amend, push. Release it as soon as that phase is done, or whenever you go
-idle / pause**, so another agent can take the checkout. The lock is not a
-place you stand: it's a flag; `acquire` does not move HEAD, you keep
-working on `work/<slug>`.
+amend, push. Release it as soon as that phase is done**, so another agent
+can take the checkout. Holding while you wait on the user is fine, for as
+long as it takes; other agents wait. The lock is not a place you stand:
+it's a flag; `acquire` does not move HEAD, you keep working on
+`work/<slug>`.
 
 Then carry out the task, and **hand off to your push/CI workflow** for
 everything past the local edits — committing, pushing, and driving CI to
@@ -115,8 +116,8 @@ the lock, and switch away with `switch-work.sh`. (A CI kit may add a
   every resource-using phase across the shared checkout (their local heavy
   tests bind host-global ports), and is released for long waits and idle
   time. `switch-work.sh` honours it; CI kits built on this honour it too.
-  Its mechanics — ownership record, stale-lock detection, and user-gated
-  `reclaim` — live in `lock-mechanics.md` + the `agent-lock.sh` header.
+  Its mechanics — ownership record, collision, and user-gated `reclaim` —
+  live in `lock-mechanics.md` + the `agent-lock.sh` header.
 
 ---
 
