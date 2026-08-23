@@ -3,7 +3,7 @@
 Reference for how `lock/agent` behaves under contention and failure. Read
 this when `agent-lock.sh` reports a collision. The day-to-day flow
 (acquire → branch → work → release) is in `proceed-by-lock-and-branch.md`; taking
-a checkout parked by another task is `borrow-checkout.md`; this covers the
+a checkout parked by another task is `borrow-lock.md`; this covers the
 record, the rules, and the edge cases.
 
 ## The lock is a flag, and a mutex on the whole checkout
@@ -70,7 +70,7 @@ lives on its `work/<slug>` and resumes in a new process. Whether a holder
 is parked or abandoned is the user's call, and they make it one of two
 ways:
 
-- **Parked, will resume** — the user sends you to `borrow-checkout.md`:
+- **Parked, will resume** — the user sends you to `borrow-lock.md`:
   `borrow --confirmed` saves the hold (its record, HEAD's branch and
   commit) and frees the lock; you acquire, work, release, and `restore`
   puts everything back, so the parked task resumes into the state it

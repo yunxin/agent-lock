@@ -1,4 +1,4 @@
-# Borrow the Checkout
+# Borrow the Lock
 
 **When this doc is referenced: the shared checkout is held by a task that
 is parked — take it for your `work/<slug>`.**

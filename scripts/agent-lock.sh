@@ -137,7 +137,7 @@ Usage: $0 acquire
             and HEAD's branch/commit to $PARKED_FILE, then delete
             $LOCK_BRANCH and $OWNER_FILE, leaving the lock free and HEAD
             where it is. DESTRUCTIVE: run only after a human confirms
-            (borrow-checkout.md). Without --confirmed it just prints what
+            (borrow-lock.md). Without --confirmed it just prints what
             it would break and exits non-zero. Then acquire, work, release,
             and \`restore\`.
 

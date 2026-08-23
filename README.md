@@ -25,7 +25,7 @@ lock; the scripts below are what refuse a colliding step.
 
 ```
 proceed-by-lock-and-branch.md     # RUNBOOK — acquire -> branch -> work -> release (the entry point)
-borrow-checkout.md          # RUNBOOK — rare: take a checkout parked on another branch, hand it back
+borrow-lock.md               # RUNBOOK — rare: take a parked task's lock, put it back
 lock-mechanics.md           # REFERENCE — ownership, collision, reclaim
 CONFIG.md                   # REFERENCE — the three config knobs
 agent-lock.config.example.sh
