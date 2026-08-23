@@ -17,7 +17,9 @@ Written for AI coding agents (the docs are meant to be referenced
 mid-task), but equally usable as a human checklist.
 
 [agent-term](https://github.com/albertwujj/agent-term) understands the lock out of
-the box — it shows which agent holds the checkout, live in the terminal.
+the box: it shows which session holds the checkout, live, and whether that
+session is working, idle, or closed. It never interrupts an agent about the
+lock; the scripts below are what refuse a colliding step.
 
 ## Layout
 
@@ -52,7 +54,7 @@ scripts also run with no config at all.
 | Piece | File | Role |
 |---|---|---|
 | Lock | [`scripts/agent-lock.sh`](scripts/agent-lock.sh) | `lock/agent` flag ref = "a task owns the tree / a host-global resource". Created at `HEAD` **without** moving it. Atomic ref creation = mutual exclusion in one checkout. `acquire` / `release` / `status` / `reclaim`. |
-| Ownership / abort recovery | same | Owner record (`branch`, `nonce`, session token, timestamp, pid) → ownership-guarded `release`, user-gated `reclaim --confirmed` (breaks the lock; never re-acquires). No staleness heuristic: a held lock is a fact, "abandoned" is the user's call. See [`lock-mechanics.md`](lock-mechanics.md). |
+| Ownership / abort recovery | same | Owner record (`branch`, `nonce`, session token, timestamp, pid): only the owning branch, in the owning session, can `release`. A parked or abandoned lock is broken only on the user's say-so, with `reclaim --confirmed`, which frees it; then switch to your branch and `acquire`. No staleness detection: a holder may wait on the user for as long as it takes, and others wait. See [`lock-mechanics.md`](lock-mechanics.md). |
 | `HEAD` guard | [`scripts/assert-head.sh`](scripts/assert-head.sh) | Fail-closed check that `HEAD` is on the expected branch (+ optional SHA) before any amend/reset/push. Pair with an explicit-refspec push. |
 | Guarded switch | [`scripts/switch-work.sh`](scripts/switch-work.sh) | Refuses to switch/create a branch while the lock is held or the tree is dirty. |
 
@@ -76,8 +78,10 @@ and [`lock-mechanics.md`](lock-mechanics.md).
 A push/CI workflow reuses the same primitives: it starts from
 `proceed-by-branching.md`, then re-acquires `lock/agent` around each of
 its own resource phases (pushing a change, running a local suite) and
-releases it for long remote waits. It locates these scripts via an
-`AGENT_LOCK_DIR` it sets, or by putting them on `PATH`.
+releases it for long remote waits. Each hold begins and ends on the task's
+own branch; a workflow that needs the checkout on another branch switches
+with the lock free, through `switch-work.sh`. It locates these scripts via
+an `AGENT_LOCK_DIR` it sets, or by putting them on `PATH`.
 
 Such a workflow is optional; agent-lock stands alone with any (or no)
 push/CI workflow. (This note is for maintainers/discovery —
