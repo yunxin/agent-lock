@@ -38,8 +38,8 @@ cur_br=$(git symbolic-ref --short -q HEAD || echo "")
 if [ "$cur_br" != "$expected_branch" ]; then
   echo "HEAD-ASSERT FAILED: on '${cur_br:-detached}', expected '$expected_branch'" >&2
   echo "  another actor moved HEAD in this shared checkout." >&2
-  echo "  do NOT commit/amend/push here; switch back with" >&2
-  echo "  scripts/switch-work.sh '$expected_branch' and re-verify." >&2
+  echo "  do NOT commit/amend/push here; under your own lock hold, switch back" >&2
+  echo "  with git switch '$expected_branch' and re-verify." >&2
   exit 1
 fi
 

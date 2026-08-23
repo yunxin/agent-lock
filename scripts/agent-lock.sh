@@ -2,54 +2,61 @@
 #
 # scripts/agent-lock.sh — acquire/release the lock/agent flag branch.
 #
-# A mutex that serializes the *resource-using* phases of work in a single
-# shared checkout: any time an agent touches the working tree or a
-# host-global resource (the tree itself, test ports, build outputs).
-# It lets several agents share one checkout without colliding. The branch
-# name `lock/agent` is the mutex: creating a ref is atomic at the ref level
-# (git takes lock/agent.lock), so two simultaneous acquires in the same
-# checkout cannot both succeed.
+# A mutex on a shared checkout. It serializes the *resource-using* phases
+# of work: any time a task touches HEAD, the working tree, or a host-global
+# resource (test ports, build outputs). Several agents can then share one
+# checkout without colliding. The branch name `lock/agent` is the mutex:
+# creating a ref is atomic at the ref level (git takes lock/agent.lock), so
+# two simultaneous acquires in the same checkout cannot both succeed.
 #
 # The lock is a *flag*, not a place you stand: it is HELD whenever the
 # `lock/agent` ref EXISTS, regardless of where HEAD points. `acquire`
-# creates it WITHOUT moving HEAD; you keep working on your own
-# `work/<slug>` branch (proceed-by-branching.md) and modify it in
-# place. `release` deletes the ref. Your work branch already holds the
-# latest commit, so nothing is force-reset.
+# creates it WITHOUT moving HEAD; `release` deletes it.
 #
-# Touch HEAD/the tree only while HOLDING the lock, and keep HEAD on the
-# branch you acquired on for the whole hold: switching branches is done
-# with the lock free (scripts/switch-work.sh refuses while it is held).
-# A holder killed mid-hold leaves HEAD on its work branch and the lock
-# held; that is the "crashed while holding the lock" case, recovered via
-# a user-confirmed reclaim (see below).
+# Under your hold, HEAD and the working tree are yours: switch, create and
+# rebase branches with plain git. After every acquire put HEAD where you
+# need it (`git switch work/<slug>`); between holds the checkout sits
+# wherever the last holder left it, and another task may have held it in
+# between. `release` requires a clean tree, so the next holder starts from
+# committed state. A holder killed mid-hold leaves its work on its branch
+# and the lock held; that is the "crashed while holding the lock" case,
+# recovered via a user-confirmed reclaim (see below).
 #
 # Ownership + abort recovery
 # --------------------------
 # acquire writes an owner file `.git/agent-lock-owner` so the lock survives
-# (a) a different task trying to release it and (b) a session that aborted
-# while holding it. Fields:
-#   branch   = owning work/<slug> — the durable owner identity (see below)
-#   nonce    = random per-acquire id
+# (a) a different session trying to release it and (b) a session that
+# aborted while holding it. Fields:
 #   session  = $AGENT_SESSION_ID at acquire, when a host sets one (a
-#              terminal host's per-session token; empty otherwise). Lets a
-#              host tell its own lock from another session's, and lets
-#              `release` refuse a session that is not the holder.
-#   acquired = ISO-8601 timestamp (information for the user)
+#              terminal host's per-session token; empty otherwise). The
+#              owner identity: lets a host tell its own lock from another
+#              session's, and lets `release` refuse a session that is not
+#              the holder.
+#   branch   = the branch HEAD was on at acquire — information for humans
+#              (the hold may move on); never a rule
+#   nonce    = random per-acquire id
+#   acquired = ISO-8601 timestamp, for the user's information
 #   pid      = acquiring shell PID — diagnostic only
 #
-# `release` refuses unless you are on the owning work branch (and, when
-# both sides carry a session token, unless it matches). A held lock is
-# never judged stale by this script: a holder waiting on the user may hold
-# it for any length of time, and others wait. Whether a holder is parked
-# or abandoned is the user's call; on their say-so, `reclaim --confirmed`
-# breaks the lock — the single sanctioned break (never `git branch -D`/`-f`).
+# `release` refuses when both the record and the caller carry a session
+# token and they differ. Without a host token ownership cannot be verified:
+# cooperating agents simply do not release a lock they did not take. A held
+# lock is never judged stale by this script: a holder waiting on the user
+# may hold it for any length of time, and others wait. Whether a holder is
+# parked or abandoned is the user's call; on their say-so the lock is
+# broken one of two ways (never `git branch -D`/`-f`):
+#   borrow --confirmed   the task is parked and will resume: the hold is
+#                        saved (`.git/agent-lock-parked`: its record, HEAD's
+#                        branch and commit) and `restore` later puts it all
+#                        back, so the parked task resumes into the state it
+#                        remembers — lock held by it, HEAD where it left it.
+#   reclaim --confirmed  the task is abandoned: the lock is simply freed.
 # See lock-mechanics.md.
 #
 # This script is intentionally narrow: it manages the flag branch, the
-# owner file, and their preconditions only. Any backend work (e.g. talking
-# to a review/CI system, SHA resolution, rebasing, `git fetch`) is the
-# caller's responsibility — see the consuming workflow's runbook.
+# owner file, and their preconditions only. Branching is git's job; any
+# backend work (a review/CI system, SHA resolution, rebasing, `git fetch`)
+# is the caller's — see the consuming workflow's runbook.
 #
 # Design choices (alternatives considered and rejected):
 #   - Fixed branch name `lock/agent` (not per-session / per-task unique).
@@ -60,12 +67,14 @@
 #   - Flag branch, acquire does not move HEAD. Holding == the ref exists,
 #     so a session stays on its meaningful work branch; a crash leaves
 #     work on a real branch, not a cryptic lock branch.
-#   - Owner identity keyed on the WORK BRANCH (+ nonce), not a PID. The
-#     work branch is durable across the agent's many shells; a PID is not
-#     (and PID-liveness cannot distinguish a finished tool-call shell
-#     from an aborted session). The session token, when a host provides
-#     one, is the second durable identity: it survives the host resuming
-#     the session in a new process.
+#   - No branch wrapper. Git already has the branch commands; the lock
+#     only decides who may use them right now. Binding a hold to a branch
+#     (and guarding switches) duplicated git and only ever caught agents
+#     that skip the runbook, which a wrapper cannot stop anyway.
+#   - Owner identity = the session token a host provides (durable across
+#     the agent's many shells and across a resume), not a PID: PID
+#     liveness cannot distinguish a finished tool-call shell from an
+#     aborted session.
 #   - No staleness heuristic. Age says nothing about a holder waiting on
 #     the user, and a reboot or a closed window ends a process, not the
 #     task, which resumes. The user judges; the script only reports.
@@ -75,11 +84,14 @@
 #
 # Usage:
 #   scripts/agent-lock.sh acquire              # claim lock/agent at HEAD (no switch)
-#   scripts/agent-lock.sh release              # delete lock/agent (owner only)
+#   scripts/agent-lock.sh release              # delete lock/agent (holding session only)
 #   scripts/agent-lock.sh status               # exit 0 = free, 1 = held (with owner)
-#   scripts/agent-lock.sh reclaim [--confirmed]# break a parked/abandoned lock
+#   scripts/agent-lock.sh borrow [--confirmed] # break a PARKED hold, saving it for restore
+#   scripts/agent-lock.sh restore              # put a borrowed hold back as it was
+#   scripts/agent-lock.sh reclaim [--confirmed]# break an ABANDONED hold
 #
-# `acquire`, `release`, and `reclaim` require a clean working tree. If
+# `acquire`, `release`, `borrow`, `restore`, and `reclaim` require a clean
+# working tree. If
 # SCRATCH_DIR is set (see CONFIG.md), untracked files under it are tolerated
 # (local-only notes/helpers); otherwise the check is strict. `status` is
 # read-only.
@@ -93,10 +105,12 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/_load-config.sh"
 
 LOCK_BRANCH="lock/agent"
-WORK_PATTERN='^work/'                            # acquire precondition (regex)
 # Ownership / abort-recovery record, resolved through git so subdir runs
 # and linked worktrees do not write to a literal cwd/.git path.
 OWNER_FILE="$(git rev-parse --git-path agent-lock-owner 2>/dev/null || printf '%s' '.git/agent-lock-owner')"
+# A borrowed hold, saved by `borrow` for `restore`: the owner record plus
+# the branch and commit HEAD was on.
+PARKED_FILE="$(git rev-parse --git-path agent-lock-parked 2>/dev/null || printf '%s' '.git/agent-lock-parked')"
 
 usage() {
   cat >&2 <<EOT
@@ -107,26 +121,37 @@ Usage: $0 acquire
 
   acquire   Create $LOCK_BRANCH at current HEAD (a flag — HEAD is NOT
             moved) and write $OWNER_FILE. Preconditions:
-              - HEAD on a branch matching '$WORK_PATTERN'
-                (your task branch, per proceed-by-branching.md)
               - working tree clean (untracked under \$SCRATCH_DIR is OK)
               - $LOCK_BRANCH does not already exist
+            Then branch, switch and edit with plain git under your hold.
 
-  release   Delete $LOCK_BRANCH and $OWNER_FILE. Refuses unless HEAD is
-            on the owning work branch recorded in $OWNER_FILE, the
-            session token matches when both sides have one, and the tree
-            is clean. Only the holding session releases; others wait
-            (lock-mechanics.md).
+  release   Delete $LOCK_BRANCH and $OWNER_FILE. Refuses unless the tree is
+            clean and, when both sides carry a session token, the token
+            matches the record's. Only the holding session releases;
+            others wait (lock-mechanics.md).
 
   status    Read-only probe. Exits 0 if $LOCK_BRANCH does not exist, 1 if
             it does — printing the owner record.
 
-  reclaim   Break a parked or abandoned lock: delete $LOCK_BRANCH and
-            $OWNER_FILE, leaving the lock free and HEAD where it is.
-            DESTRUCTIVE: run only after a human confirms
-            (lock-mechanics.md). Without --confirmed it just prints what
-            it would break and exits non-zero. Then switch to your own
-            work/<slug> (scripts/switch-work.sh) and acquire.
+  borrow    Break a PARKED hold (its task will resume): save its record
+            and HEAD's branch/commit to $PARKED_FILE, then delete
+            $LOCK_BRANCH and $OWNER_FILE, leaving the lock free and HEAD
+            where it is. DESTRUCTIVE: run only after a human confirms
+            (borrow-checkout.md). Without --confirmed it just prints what
+            it would break and exits non-zero. Then acquire, work, release,
+            and \`restore\`.
+
+  restore   Put a borrowed hold back: with the lock free and the tree
+            clean, switch HEAD to the parked branch, verify it is still at
+            the parked commit, re-create $LOCK_BRANCH there and restore
+            the parked owner record. The parked task then resumes into the
+            state it remembers.
+
+  reclaim   Break an ABANDONED hold: delete $LOCK_BRANCH and $OWNER_FILE,
+            leaving the lock free and HEAD where it is. DESTRUCTIVE: run
+            only after a human confirms (lock-mechanics.md). Without
+            --confirmed it just prints what it would break and exits
+            non-zero. Then acquire and put HEAD on your own branch.
 EOT
   exit 2
 }
@@ -151,9 +176,9 @@ owner_get() {
 write_owner() {
   local br="$1"
   {
+    printf 'session=%s\n'  "${AGENT_SESSION_ID:-}"
     printf 'branch=%s\n'   "$br"
     printf 'nonce=%s\n'    "$(gen_nonce)"
-    printf 'session=%s\n'  "${AGENT_SESSION_ID:-}"
     printf 'acquired=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'pid=%s\n'      "$$"
   } > "$OWNER_FILE"
@@ -167,7 +192,7 @@ print_lock_held() {
   echo "  tip:   $(git log -1 --format='%cI  %h  %s' "$LOCK_BRANCH")" >&2
   echo "  age:   $(git log -1 --format='%cr'         "$LOCK_BRANCH")" >&2
   if [ -f "$OWNER_FILE" ]; then
-    echo "  owner: branch=$(owner_get branch || echo '?')  session=$(owner_get session || echo '')  acquired=$(owner_get acquired || echo '?')  pid=$(owner_get pid || echo '?')" >&2
+    echo "  owner: session=$(owner_get session || echo '')  acquired on branch=$(owner_get branch || echo '?')  at $(owner_get acquired || echo '?')  pid=$(owner_get pid || echo '?')" >&2
   else
     echo "  owner: (unknown — $OWNER_FILE missing)" >&2
   fi
@@ -202,20 +227,9 @@ ensure_clean() {
   fi
 }
 
-require_work_branch() {
-  local cur_br="$1" verb="$2"
-  if [[ ! "$cur_br" =~ $WORK_PATTERN ]]; then
-    echo "must be on a '$WORK_PATTERN' branch to $verb (current: ${cur_br:-detached})" >&2
-    echo "  hint: start the task on work/<slug> per proceed-by-branching.md" >&2
-    echo "        (scripts/switch-work.sh -c work/<slug> <target>)." >&2
-    exit 1
-  fi
-}
+current_branch() { git symbolic-ref --short -q HEAD || echo "(detached)"; }
 
 acquire() {
-  local cur_br
-  cur_br=$(git symbolic-ref --short -q HEAD || echo "")
-  require_work_branch "$cur_br" "acquire"
   ensure_clean "working tree before acquire"
 
   # Atomic acquire: `git branch` fails if the branch already exists, and
@@ -243,9 +257,9 @@ acquire() {
   # Write the owner record AFTER the flag is created (a colliding acquire
   # exits above without ever touching a holder's owner file). Overwrites
   # any orphan file left by an unclean prior release.
-  write_owner "$cur_br"
+  write_owner "$(current_branch)"
 
-  echo "ACQUIRED $LOCK_BRANCH at $(git rev-parse --short HEAD); owner=$cur_br${AGENT_SESSION_ID:+ session=$AGENT_SESSION_ID} (HEAD stays put)"
+  echo "ACQUIRED $LOCK_BRANCH at $(git rev-parse --short HEAD) on $(current_branch)${AGENT_SESSION_ID:+ session=$AGENT_SESSION_ID} (HEAD stays put)"
 }
 
 release() {
@@ -255,79 +269,116 @@ release() {
   fi
   ensure_clean "working tree before release"
 
-  local cur_br owner_br owner_sess
-  cur_br=$(git symbolic-ref --short -q HEAD || echo "")
-  if [ "$cur_br" = "$LOCK_BRANCH" ]; then
+  if [ "$(git symbolic-ref --short -q HEAD || echo "")" = "$LOCK_BRANCH" ]; then
     echo "currently on $LOCK_BRANCH; the flag model never stands on it." >&2
     echo "  hint: switch to your work/<slug> branch, then release." >&2
     exit 1
   fi
 
-  owner_br=$(owner_get branch || echo "")
-  if [ -z "$owner_br" ]; then
-    echo "$OWNER_FILE missing/unreadable; cannot verify ownership of $LOCK_BRANCH." >&2
-    echo "  If it is yours or abandoned, confirm with the user then: $0 reclaim --confirmed" >&2
-    exit 1
-  fi
-  if [ "$owner_br" != "$cur_br" ]; then
-    echo "refusing to release: $LOCK_BRANCH is owned by '$owner_br', you are on '${cur_br:-detached}'." >&2
-    echo "  Only the owning work branch releases. If it aborted, confirm with the user then:" >&2
-    echo "    $0 reclaim --confirmed" >&2
-    exit 1
-  fi
-  # HEAD is shared by every session on this checkout, so the branch alone
-  # cannot tell the holder from a session that merely sits on its branch
-  # (a parked task resumed while another borrowed the checkout). When both
-  # the record and the caller carry a session token, they must match.
+  # HEAD is shared by every session on this checkout, so only the session
+  # token can tell the holder from anyone else. When both the record and the
+  # caller carry one, they must match.
+  local owner_sess
   owner_sess=$(owner_get session || echo "")
   if [ -n "$owner_sess" ] && [ -n "${AGENT_SESSION_ID:-}" ] && [ "$owner_sess" != "$AGENT_SESSION_ID" ]; then
     echo "refusing to release: $LOCK_BRANCH was acquired by session '$owner_sess', this is session '$AGENT_SESSION_ID'." >&2
-    echo "  Only the holding session releases. If that session is gone for good, confirm with the user then:" >&2
+    echo "  Only the holding session releases. If that task is parked or abandoned, confirm with the user then:" >&2
     echo "    $0 reclaim --confirmed" >&2
     exit 1
   fi
 
   git branch -D "$LOCK_BRANCH" >/dev/null
   rm -f "$OWNER_FILE"
-  echo "RELEASED $LOCK_BRANCH; on $cur_br at $(git rev-parse --short HEAD)"
+  echo "RELEASED $LOCK_BRANCH; on $(current_branch) at $(git rev-parse --short HEAD)"
+}
+
+# Shared by borrow and reclaim: show the held lock, require --confirmed,
+# require a clean tree. $1 = verb, $2 = the confirm flag as given.
+require_break() {
+  local verb="$1" flag="${2:-}"
+  if ! git rev-parse --verify --quiet "$LOCK_BRANCH" >/dev/null 2>&1; then
+    echo "$LOCK_BRANCH does not exist; nothing to $verb. Use '$0 acquire'." >&2
+    exit 1
+  fi
+  # Always show what would be / is being broken.
+  print_lock_held
+  if [ "$flag" != "--confirmed" ]; then
+    echo "" >&2
+    echo "$verb is DESTRUCTIVE: it breaks the held lock." >&2
+    echo "Confirm with the user FIRST, then re-run: $0 $verb --confirmed" >&2
+    exit 1
+  fi
+  ensure_clean "working tree before $verb"
+}
+
+# Break the lock, leaving it free and HEAD where it is. The caller acquires
+# and then puts HEAD on its own branch, so the owner record is always the
+# holding session's own.
+break_lock() {
+  git branch -D "$LOCK_BRANCH" >/dev/null
+  rm -f "$OWNER_FILE"
+}
+
+borrow() {
+  require_break borrow "${1:-}"
+  # Save the hold before breaking it: the record as written by its holder,
+  # plus where HEAD is, so `restore` can put the parked task back exactly
+  # into the state it remembers.
+  {
+    cat "$OWNER_FILE" 2>/dev/null || true
+    printf 'head_branch=%s\n' "$(current_branch)"
+    printf 'head_sha=%s\n'    "$(git rev-parse HEAD)"
+  } > "$PARKED_FILE"
+  break_lock
+  echo "BORROWED $LOCK_BRANCH: broken, now free; HEAD stays on $(current_branch). Parked hold saved."
+  echo "  next: $0 acquire, then git switch [-c] work/<slug> [origin/<target>]; when done: release, then $0 restore"
+}
+
+restore() {
+  if [ ! -f "$PARKED_FILE" ]; then
+    echo "no parked hold to restore ($PARKED_FILE missing)." >&2
+    exit 1
+  fi
+  if git rev-parse --verify --quiet "$LOCK_BRANCH" >/dev/null 2>&1; then
+    echo "$LOCK_BRANCH is held; release it first, then restore." >&2
+    exit 1
+  fi
+  ensure_clean "working tree before restore"
+  local br sha
+  br=$(sed -n 's/^head_branch=//p' "$PARKED_FILE" | head -1)
+  sha=$(sed -n 's/^head_sha=//p' "$PARKED_FILE" | head -1)
+  if [ "$br" = "(detached)" ] || [ -z "$br" ]; then
+    git switch -q --detach "$sha"
+  else
+    git switch -q "$br"
+  fi
+  if [ "$(git rev-parse HEAD)" != "$sha" ]; then
+    echo "RESTORE FAILED: '$br' is at $(git rev-parse --short HEAD), the parked task left it at ${sha:0:11}." >&2
+    echo "  Something moved the parked branch while it was borrowed. Report this to the user;" >&2
+    echo "  do not amend or reset it. HEAD is left on '$br'; the parked record is kept in $PARKED_FILE." >&2
+    exit 1
+  fi
+  git branch "$LOCK_BRANCH" HEAD
+  grep -vE '^head_(branch|sha)=' "$PARKED_FILE" > "$OWNER_FILE"
+  printf 'restored=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$OWNER_FILE"
+  rm -f "$PARKED_FILE"
+  echo "RESTORED $LOCK_BRANCH at $(git rev-parse --short HEAD) on $(current_branch) for session=$(owner_get session || echo '')"
 }
 
 reclaim() {
-  local confirmed=0
-  [ "${1:-}" = "--confirmed" ] && confirmed=1
-
-  if ! git rev-parse --verify --quiet "$LOCK_BRANCH" >/dev/null 2>&1; then
-    echo "$LOCK_BRANCH does not exist; nothing to reclaim. Use '$0 acquire'." >&2
-    exit 1
-  fi
-
-  # Always show what would be / is being broken.
-  print_lock_held
-
-  if [ "$confirmed" != 1 ]; then
-    echo "" >&2
-    echo "reclaim is DESTRUCTIVE: it deletes the held lock and its owner record." >&2
-    echo "Confirm with the user FIRST, then re-run: $0 reclaim --confirmed" >&2
-    exit 1
-  fi
-
-  # Break only. HEAD stays where it is (often the holder's parked branch,
-  # or detached after a crash mid-operation), and the lock is left free:
-  # the caller switches to its own work/<slug> through the guard and
-  # acquires there, so the owner record never names a branch the caller
-  # does not work on.
-  ensure_clean "working tree before reclaim"
-
-  git branch -D "$LOCK_BRANCH" >/dev/null
-  rm -f "$OWNER_FILE"
-  echo "RECLAIMED $LOCK_BRANCH: broken, now free; HEAD stays on $(git symbolic-ref --short -q HEAD || echo detached)."
-  echo "  next: scripts/switch-work.sh [-c] work/<slug> [<target>], then $0 acquire"
+  require_break reclaim "${1:-}"
+  break_lock
+  rm -f "$PARKED_FILE"   # an abandoned hold has nothing to come back to
+  echo "RECLAIMED $LOCK_BRANCH: broken, now free; HEAD stays on $(current_branch)."
+  echo "  next: $0 acquire, then git switch [-c] work/<slug> [origin/<target>]"
 }
 
 case "${1:-}" in
   acquire) shift; acquire "$@" ;;
   release) shift; release "$@" ;;
   status)  shift; status  "$@" ;;
+  borrow)  shift; borrow  "$@" ;;
+  restore) shift; restore "$@" ;;
   reclaim) shift; reclaim "$@" ;;
   -h|--help|"") usage ;;
   *) usage ;;

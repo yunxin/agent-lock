@@ -2,21 +2,25 @@
 
 Reference for how `lock/agent` behaves under contention and failure. Read
 this when `agent-lock.sh` reports a collision. The day-to-day flow
-(acquire → work → release) is in `proceed-by-branching.md`; taking a
-checkout parked by another task is `borrow-checkout.md`; this covers the
+(acquire → branch → work → release) is in `proceed-by-branching.md`; taking
+a checkout parked by another task is `borrow-checkout.md`; this covers the
 record, the rules, and the edge cases.
 
-## The lock is a flag
+## The lock is a flag, and a mutex on the whole checkout
 
 `lock/agent` is a git **branch ref used as a flag**: the lock is HELD iff
-the ref exists. `acquire` creates it at HEAD **without moving HEAD**, so
-you keep working on your `work/<slug>`. `release` deletes it. Ref creation
-is atomic (git takes `lock/agent.lock`), so two simultaneous `acquire`s in
-one checkout cannot both win — that's the mutual exclusion.
+the ref exists. `acquire` creates it at HEAD **without moving HEAD**;
+`release` deletes it. Ref creation is atomic (git takes `lock/agent.lock`),
+so two simultaneous `acquire`s in one checkout cannot both win — that's the
+mutual exclusion.
 
-HEAD stays on the branch you acquired on for the whole hold. Switching
-branches is done with the lock free: `switch-work.sh` refuses while it is
-held.
+What it excludes is use of the checkout: HEAD, the working tree, and the
+host-global resources local runs bind. Under your hold they are yours —
+switch, create and rebase branches with plain git. After every `acquire`
+put HEAD where you need it; between holds the checkout sits wherever the
+last holder left it, and another task may have held it in between.
+`release` requires a clean tree, so the next holder starts from committed
+state.
 
 ## Ownership record
 
@@ -25,27 +29,27 @@ committed):
 
 | Field | Meaning |
 |-------|---------|
-| `branch` | owning `work/<slug>` — the durable owner identity |
+| `session` | `$AGENT_SESSION_ID` at acquire, when a host sets one; empty otherwise. A terminal host's per-session token (agent-term sets it on every shell it spawns, and keeps it when it resumes a session in a new process). The owner identity: tells the holding session from any other |
+| `branch` | the branch HEAD was on at acquire — information for humans; the hold may have moved on |
 | `nonce` | random per-acquire id |
-| `session` | `$AGENT_SESSION_ID` at acquire, when a host sets one; empty otherwise. A terminal host's per-session token (agent-term sets it on every shell it spawns, and keeps it when it resumes a session in a new process). The second durable identity: tells the holding session from any other |
 | `acquired` | ISO-8601 timestamp, for the user's information |
 | `pid` | acquiring shell PID — diagnostic only |
 
-`release` refuses unless you are on the owning `work/<slug>`, the tree is
-clean, and — when both the record and your shell carry a session token —
-the tokens match. So another task can't release your lock, and a parked
-task resumed while someone else borrowed the checkout can't release theirs
-just because HEAD happens to sit on their branch.
+`release` refuses unless the tree is clean and — when both the record and
+your shell carry a session token — the tokens match. So another session
+can't release your lock, whatever branch HEAD happens to be on. Without a
+host token ownership cannot be verified; cooperating agents simply do not
+release a lock they did not take.
 
 ### Reading the lock from outside (monitors, status lines)
 
 Held-ness is **the ref existing** — nothing else. Whose it is, is the
-record's `branch` and `session`; never compare the owner against HEAD,
-which every session on the checkout shares. A host that set
-`AGENT_SESSION_ID` on its shells can tell its own lock from another
-session's by `session`, and, if it tracks its sessions, show whether the
-holder's window is active, idle, or closed. That is the fact a user needs
-to decide on a borrow; nothing in the lock decides it for them.
+record's `session`; where the holder is working is **live HEAD**, which the
+holder owns (the record's `branch` is where it started, not where it is).
+A host that set `AGENT_SESSION_ID` on its shells can tell its own lock from
+another session's by `session`, and, if it tracks its sessions, show whether
+the holder's window is active, idle, or closed. That is the fact a user
+needs to decide on a borrow; nothing in the lock decides it for them.
 
 A monitor that infers held-ness from `pid` reports "no lock held" for
 almost every agent-held lock: each tool call runs in its own short-lived
@@ -67,21 +71,25 @@ is parked or abandoned is the user's call, and they make it one of two
 ways:
 
 - **Parked, will resume** — the user sends you to `borrow-checkout.md`:
-  take the checkout for your task, put it back as you found it.
-- **Abandoned** — the user confirms a reclaim. Same steps without the
-  hand-back:
+  `borrow --confirmed` saves the hold (its record, HEAD's branch and
+  commit) and frees the lock; you acquire, work, release, and `restore`
+  puts everything back, so the parked task resumes into the state it
+  remembers and never learns the checkout was lent out.
+- **Abandoned** — the user confirms a reclaim: the lock is freed and
+  nothing is saved.
 
 ```bash
 git rebase --abort 2>/dev/null || true        # if a holder died mid-rebase
 scripts/agent-lock.sh reclaim --confirmed     # break: lock free, HEAD untouched
-scripts/switch-work.sh -c work/<slug> <target>  # or without -c for an existing branch
 scripts/agent-lock.sh acquire
+git switch -c work/<slug> origin/<target>     # or `git switch work/<slug>` for an existing branch
 ```
 
-`reclaim` breaks the lock and stops; it never re-acquires, so the owner
-record only ever names a branch its holder works on. The abandoned
-`work/<slug>` stays until the user deletes it. `reclaim --confirmed` is the
-**only** sanctioned break — never `git branch -D`/`-f` the lock ref by hand.
+`reclaim` and `borrow` break the lock and stop; neither re-acquires, so the
+owner record is always written by the session that actually holds (or put
+back verbatim by `restore`). The abandoned `work/<slug>` stays until the
+user deletes it. These two are the **only** sanctioned breaks — never
+`git branch -D`/`-f` the lock ref by hand.
 
 ## Crash semantics (why it's safe)
 
@@ -89,8 +97,8 @@ A crash mid-hold leaves work on a **real** `work/<slug>` branch (the flag
 never moved HEAD), plus the held lock and the owner file — exactly the
 "crashed while holding the lock" case the user-confirmed `reclaim` above
 handles. Nothing is force-reset; your latest commit is on your branch. A
-crash mid-rebase may leave HEAD detached; `reclaim` does not care where
-HEAD is.
+crash mid-rebase may leave HEAD detached; `reclaim` and `acquire` do not
+care where HEAD is.
 
 ## Why these design choices
 
@@ -99,17 +107,20 @@ HEAD is.
   tasks run host-global-resource work at once.
 - **Flag, not a checked-out branch** — holding == ref exists, so sessions
   stay on meaningful work branches and a crash leaves a real branch.
-- **Owner keyed on the work branch (+ nonce), not PID** — the work branch
-  is durable across an agent's many shells; PID liveness can't tell a
-  finished tool-call shell from an aborted session. The session token,
-  when a host provides one, is durable the same way: the host keeps it
-  across a resume.
+- **No branch wrapper** — git already has the branch commands; the lock
+  only decides who may use them right now. Binding a hold to a branch and
+  guarding switches duplicated git and only ever caught agents that skip
+  the runbook, which a wrapper cannot stop anyway.
+- **Owner keyed on the session token, not PID** — the token is durable
+  across an agent's many shells and across a resume; PID liveness can't
+  tell a finished tool-call shell from an aborted session.
 - **No staleness heuristic** — a held lock is a fact; "abandoned" is a
   judgement, and only the user can make it. The script reports; the user
   decides; `reclaim` executes.
-- **`reclaim` breaks, it does not re-acquire** — in every flow where the
-  reclaimer is not the holder, HEAD sits on the holder's branch, so a
-  re-acquire would record the wrong owner and force a release-switch-acquire
-  dance anyway.
+- **`reclaim` breaks, it does not re-acquire** — the session that holds is
+  always the one that wrote the record.
+- **A borrow restores the whole hold** — lock, branch and commit — because a
+  parked task resumes believing it still holds the checkout, and nothing
+  warns it otherwise; the restore makes that belief true.
 - **Git ref, not a lockfile/flock** — atomic creation, no daemon, survives
   across processes and shells, visible in `git branch`.

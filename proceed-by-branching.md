@@ -1,7 +1,7 @@
 # Proceed by Branching
 
-**When this doc is referenced: branch first, then carry out the task** —
-no need to pause after branching.
+**When this doc is referenced: take the lock, branch, then carry out the
+task** — no need to pause after branching.
 
 **Before the first code edit,** follow the nearest `coding-guide.md` — searching this file's directory, then each parent up the direct chain only (closest wins; siblings/children never searched) — if your project provides one.
 
@@ -10,17 +10,17 @@ beyond untracked files under `$SCRATCH_DIR` (if set) when this doc is
 referenced, STOP and ask the user how to handle it *before doing anything
 else*. It may be orphaned work or another task's WIP. Do not auto-stash,
 auto-commit, switch branches, or fall back to a new worktree on your own —
-the guarded helper (`switch-work.sh`) refuses a dirty tree precisely so
-this decision reaches the user. Proceed only once the user says how (e.g.
-"stash it", "it's mine, commit to work/<slug>", "use checkout X").
+`acquire` refuses a dirty tree precisely so this decision reaches the user.
+Proceed only once the user says how (e.g. "stash it", "it's mine, commit to
+work/<slug>", "use checkout X").
 
 The rule: before the first code edit toward a change, cut a fresh,
 uniquely named branch off the latest remote tip of the target branch.
 Editing on the target branch, a detached HEAD, or someone else's
 `work/<slug>` leaves the work hard to name; a dedicated branch is the
-stable home the whole cycle (and the `lock/agent` mutex) build on. One
-checkout, one branch per task — no `git worktree` (heavy local test
-suites bind host-global ports, so parallel checkouts collide).
+stable home the whole cycle builds on. One checkout, one branch per task
+— no `git worktree` (heavy local test suites bind host-global ports, so
+parallel checkouts collide).
 
 ---
 
@@ -33,21 +33,29 @@ stranger should guess the task from the name.
 
 ---
 
-## 2. Branch off the latest remote tip, then acquire the lock
+## 2. Take the lock, then branch off the latest remote tip
 
-Use the guarded helper — it fetches the target tip, creates the branch
-off it, and refuses if `lock/agent` is held or the tree is dirty:
+`lock/agent` is a mutex on the whole checkout. Hold it before you touch
+HEAD or the tree — creating your branch included. It needs a clean tree
+and does not move HEAD:
+
+```bash
+scripts/agent-lock.sh acquire          # LOCK HELD? another task owns the checkout: back off, retry
+```
+
+Then cut your branch with plain git:
 
 ```bash
 SLUG=<your-slug>                       # e.g. payments-retry-backoff
 TARGET_BRANCH=develop                  # or main, release-2.4, …
 
-scripts/switch-work.sh -c "work/$SLUG" "$TARGET_BRANCH"
+git fetch --quiet origin "$TARGET_BRANCH"
+git switch -c "work/$SLUG" "origin/$TARGET_BRANCH"
 ```
 
-It also refuses if `work/$SLUG` already exists locally — the name isn't
-unique, so add a distinguishing suffix (a second keyword, your initials,
-or `-$(date -u +%Y%m%d)`) and retry. Confirm you're on the new branch, on
+If `work/$SLUG` already exists locally the name isn't unique: add a
+distinguishing suffix (a second keyword, your initials, or
+`-$(date -u +%Y%m%d)`) and retry. Confirm you're on the new branch, on
 tip:
 
 ```bash
@@ -55,35 +63,28 @@ git rev-parse --abbrev-ref HEAD                          # -> work/<slug>
 git merge-base --is-ancestor "origin/$TARGET_BRANCH" HEAD && echo "on tip"
 ```
 
-**Acquire the lock, then go straight into the edits.** Editing — and any
-*local* heavy test (integration/E2E) you run while developing — uses the
-working tree and host-global resources (ports, build outputs), so it must
-serialize across this shared checkout. Keep those local runs **targeted**
-(only the tests covering your change) so the lock hold stays short and
-other tasks keep moving:
+**Go straight into the edits.** Editing — and any *local* heavy test
+(integration/E2E) you run while developing — uses the working tree and
+host-global resources (ports, build outputs), so it must serialize across
+this shared checkout. Keep those local runs **targeted** (only the tests
+covering your change) so the lock hold stays short and other tasks keep
+moving.
 
-```bash
-scripts/agent-lock.sh acquire        # tree is clean + on work/<slug> (just satisfied)
-```
-
-To return to the branch later, switch through the guard, not raw git:
-`scripts/switch-work.sh "work/$SLUG"` (refuses while the lock is held;
-commit or `git stash` WIP first).
-
-> The raw equivalent (`git fetch … && git switch -c …`) skips the
-> lock/clean guards — prefer the helper.
+To return to the branch later: `acquire`, then `git switch "work/$SLUG"`.
+Never assume HEAD is where you left it — another task may have held the
+checkout in between and moved it, legitimately.
 
 ---
 
 ## 3. Hold the lock for resource work; release when done
 
-**The rule for the whole cycle: hold `lock/agent` whenever you touch the
-working tree or a host-global resource — edit, local test, commit, rebase,
-amend, push. Release it as soon as that phase is done**, so another agent
-can take the checkout. Holding while you wait on the user is fine, for as
-long as it takes; other agents wait. The lock is not a place you stand:
-it's a flag; `acquire` does not move HEAD, you keep working on
-`work/<slug>`.
+**The rule for the whole cycle: hold `lock/agent` whenever you touch HEAD,
+the working tree, or a host-global resource — branch, edit, local test,
+commit, rebase, amend, push. Release it as soon as that phase is done**,
+so another agent can take the checkout. Holding while you wait on the user
+is fine, for as long as it takes; other agents wait. The lock is not a
+place you stand: it's a flag; `acquire` does not move HEAD, and under your
+hold branching is plain git.
 
 Then carry out the task, and **hand off to your push/CI workflow** for
 everything past the local edits — committing, pushing, and driving CI to
@@ -97,9 +98,8 @@ re-acquires the same lock around its own resource phases
 (pushing a change, running a local suite) and releases it for long
 remote waits — same discipline, reused.
 
-To pause locally, commit WIP to `work/<slug>` (or `git stash`), release
-the lock, and switch away with `switch-work.sh`. (A CI kit may add a
-*remote* checkpoint on top.)
+To pause, commit WIP to `work/<slug>` and release the lock. The branch
+*is* your checkpoint; to pick the task up, `acquire` and `git switch` back.
 
 ---
 
@@ -110,14 +110,14 @@ the lock, and switch away with `switch-work.sh`. (A CI kit may add a
 | Work (home) | this doc, §2 | `work/<slug>` |
 | Lock (shared-checkout mutex) | `scripts/agent-lock.sh acquire` | `lock/agent` (singleton flag) |
 
-- **`work/<slug>` is the home and your local checkpoint.** All edits and
+- **`work/<slug>` is the home and your checkpoint.** All edits and
   commits happen there; it stays the latest state of the task.
 - **`lock/agent` is a singleton flag**, not named per-task: it serializes
   every resource-using phase across the shared checkout (their local heavy
-  tests bind host-global ports), and is released for long waits and idle
-  time. `switch-work.sh` honours it; CI kits built on this honour it too.
-  Its mechanics — ownership record, collision, and user-gated `reclaim` —
-  live in `lock-mechanics.md` + the `agent-lock.sh` header.
+  tests bind host-global ports), and is released for long waits. CI kits
+  built on this honour it too. Its mechanics — ownership record,
+  collision, and user-gated `reclaim` — live in `lock-mechanics.md` + the
+  `agent-lock.sh` header.
 
 ---
 
@@ -127,6 +127,6 @@ the lock, and switch away with `switch-work.sh`. (A CI kit may add a
   under `$SCRATCH_DIR` (`:!$SCRATCH_DIR`), if set.
 - **Already edited on the target branch / detached HEAD?** Move the edits
   onto a `work/<slug>` branch before pushing (commit or `git stash`, then
-  `scripts/switch-work.sh -c work/<slug> <target>`).
+  `git switch -c work/<slug> origin/<target>` under your hold).
 - **`work/<slug>` is local-only until you push it** — how it reaches a
   review/CI backend is your push workflow's concern, not this doc's.

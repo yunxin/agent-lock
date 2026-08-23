@@ -15,7 +15,7 @@
 #
 # All three have safe defaults — agent-lock runs with no config at all.
 
-# Branch new work is cut off (the tip switch-work.sh -c fetches).
+# Branch new work is cut off (proceed-by-branching.md §2).
 : "${TARGET_BRANCH:=develop}"
 
 # Optional untracked scratch dir to tolerate when the lock/switch guards

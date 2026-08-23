@@ -5,8 +5,8 @@ background loops) safely share one git checkout**. A single working tree
 has one `HEAD`, and heavy local test suites often bind host-global ports,
 so two tasks mutating the tree — or running local suites — at once corrupt
 each other. agent-lock serializes those phases with a lock flag, an
-ownership record with abort recovery, fail-closed `HEAD` guards, and a
-guarded branch switch.
+ownership record with abort recovery, and a fail-closed `HEAD` guard.
+Under the lock, branching is plain git.
 
 It cares nothing about *what* you do under the lock (edit, test, push to
 any review/CI system) — only that the working tree and host-global
@@ -30,7 +30,7 @@ lock-mechanics.md           # REFERENCE — ownership, collision, reclaim
 CONFIG.md                   # REFERENCE — the three config knobs
 agent-lock.config.example.sh
 scripts/
-  agent-lock.sh   switch-work.sh   assert-head.sh   _load-config.sh
+  agent-lock.sh   assert-head.sh   _load-config.sh
 ```
 
 Doc naming: a **runbook** (a human invokes it, the agent executes) gets a
@@ -53,10 +53,9 @@ scripts also run with no config at all.
 
 | Piece | File | Role |
 |---|---|---|
-| Lock | [`scripts/agent-lock.sh`](scripts/agent-lock.sh) | `lock/agent` flag ref = "a task owns the tree / a host-global resource". Created at `HEAD` **without** moving it. Atomic ref creation = mutual exclusion in one checkout. `acquire` / `release` / `status` / `reclaim`. |
-| Ownership / abort recovery | same | Owner record (`branch`, `nonce`, session token, timestamp, pid): only the owning branch, in the owning session, can `release`. A parked or abandoned lock is broken only on the user's say-so, with `reclaim --confirmed`, which frees it; then switch to your branch and `acquire`. No staleness detection: a holder may wait on the user for as long as it takes, and others wait. See [`lock-mechanics.md`](lock-mechanics.md). |
+| Lock | [`scripts/agent-lock.sh`](scripts/agent-lock.sh) | `lock/agent` flag ref = "a task owns the checkout": HEAD, the tree, and the host-global resources local runs bind. Created at `HEAD` **without** moving it; atomic ref creation = mutual exclusion in one checkout. Under a hold, HEAD and the tree are the holder's to move with plain git; `release` needs a clean tree, so the next holder starts from committed state. `acquire` / `release` / `status` / `borrow` / `restore` / `reclaim`. |
+| Ownership / abort recovery | same | Owner record (session token, branch at acquire, `nonce`, timestamp, pid): only the holding session can `release`. A held lock is broken only on the user's say-so: `borrow --confirmed` for a parked task (the hold is saved and `restore` puts it back, lock and all, when you are done), `reclaim --confirmed` for an abandoned one. No staleness detection: a holder may wait on the user for as long as it takes, and others wait. See [`lock-mechanics.md`](lock-mechanics.md). |
 | `HEAD` guard | [`scripts/assert-head.sh`](scripts/assert-head.sh) | Fail-closed check that `HEAD` is on the expected branch (+ optional SHA) before any amend/reset/push. Pair with an explicit-refspec push. |
-| Guarded switch | [`scripts/switch-work.sh`](scripts/switch-work.sh) | Refuses to switch/create a branch while the lock is held or the tree is dirty. |
 
 The work branch `work/<slug>` is the **home** for a task and doubles as
 the local checkpoint. `lock/agent` is a **singleton flag**, not per-task.
@@ -68,6 +67,8 @@ and [`lock-mechanics.md`](lock-mechanics.md).
 - One task lives on a `work/<slug>` branch.
 - A single shared checkout. Read-only sessions never need the lock; only
   tree-mutating / resource-using phases do.
+- After every `acquire`, put HEAD on your branch. Between holds the
+  checkout sits wherever the last holder left it.
 - **Optional scratch dir (`SCRATCH_DIR`).** If you keep local-only notes
   or helpers in the checkout, set `SCRATCH_DIR` and the lock/switch guards
   tolerate untracked files under it when checking for a clean tree. Leave
@@ -78,10 +79,9 @@ and [`lock-mechanics.md`](lock-mechanics.md).
 A push/CI workflow reuses the same primitives: it starts from
 `proceed-by-branching.md`, then re-acquires `lock/agent` around each of
 its own resource phases (pushing a change, running a local suite) and
-releases it for long remote waits. Each hold begins and ends on the task's
-own branch; a workflow that needs the checkout on another branch switches
-with the lock free, through `switch-work.sh`. It locates these scripts via
-an `AGENT_LOCK_DIR` it sets, or by putting them on `PATH`.
+releases it for long remote waits. After each `acquire` it puts HEAD on
+its branch with plain git. It locates these scripts via an
+`AGENT_LOCK_DIR` it sets, or by putting them on `PATH`.
 
 Such a workflow is optional; agent-lock stands alone with any (or no)
 push/CI workflow. (This note is for maintainers/discovery —
