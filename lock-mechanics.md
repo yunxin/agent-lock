@@ -2,7 +2,7 @@
 
 Reference for how `lock/agent` behaves under contention and failure. Read
 this when `agent-lock.sh` reports a collision. The day-to-day flow
-(acquire → branch → work → release) is in `proceed-by-branching.md`; taking
+(acquire → branch → work → release) is in `proceed-by-lock-and-branch.md`; taking
 a checkout parked by another task is `borrow-checkout.md`; this covers the
 record, the rules, and the edge cases.
 

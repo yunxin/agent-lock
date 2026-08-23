@@ -24,7 +24,7 @@ lock; the scripts below are what refuse a colliding step.
 ## Layout
 
 ```
-proceed-by-branching.md     # RUNBOOK — branch -> acquire -> work -> release (the entry point)
+proceed-by-lock-and-branch.md     # RUNBOOK — acquire -> branch -> work -> release (the entry point)
 borrow-checkout.md          # RUNBOOK — rare: take a checkout parked on another branch, hand it back
 lock-mechanics.md           # REFERENCE — ownership, collision, reclaim
 CONFIG.md                   # REFERENCE — the three config knobs
@@ -59,7 +59,7 @@ scripts also run with no config at all.
 
 The work branch `work/<slug>` is the **home** for a task and doubles as
 the local checkpoint. `lock/agent` is a **singleton flag**, not per-task.
-Lifecycle and rationale: [`proceed-by-branching.md`](proceed-by-branching.md)
+Lifecycle and rationale: [`proceed-by-lock-and-branch.md`](proceed-by-lock-and-branch.md)
 and [`lock-mechanics.md`](lock-mechanics.md).
 
 ## Conventions assumed
@@ -77,7 +77,7 @@ and [`lock-mechanics.md`](lock-mechanics.md).
 ## Building a CI/CD workflow on top
 
 A push/CI workflow reuses the same primitives: it starts from
-`proceed-by-branching.md`, then re-acquires `lock/agent` around each of
+`proceed-by-lock-and-branch.md`, then re-acquires `lock/agent` around each of
 its own resource phases (pushing a change, running a local suite) and
 releases it for long remote waits. After each `acquire` it puts HEAD on
 its branch with plain git. It locates these scripts via an
@@ -85,5 +85,5 @@ its branch with plain git. It locates these scripts via an
 
 Such a workflow is optional; agent-lock stands alone with any (or no)
 push/CI workflow. (This note is for maintainers/discovery —
-`proceed-by-branching.md` carries the runtime handoff, so an agent never
+`proceed-by-lock-and-branch.md` carries the runtime handoff, so an agent never
 needs this README mid-task.)

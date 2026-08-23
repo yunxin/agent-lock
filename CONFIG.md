@@ -26,7 +26,7 @@ vars directly instead.
 
 | Variable | What it is | Default |
 |---|---|---|
-| `TARGET_BRANCH` | Branch new work is cut off (`proceed-by-branching.md` §2). | `develop` |
+| `TARGET_BRANCH` | Branch new work is cut off (`proceed-by-lock-and-branch.md` §2). | `develop` |
 | `SCRATCH_DIR` | Optional untracked dir the lock/switch guards tolerate when checking for a clean tree (local-only notes/helpers). Empty = strict. | _empty_ |
 | `REPO_ROOT` | Path to the shared working tree. Unused by the core scripts (they act on the current repo); provided for consumers/CI kits that `cd` to the checkout. | git toplevel |
 

@@ -4,7 +4,7 @@
 is parked — take it for your `work/<slug>`.**
 
 A free lock needs none of this: acquire, cut your branch, work —
-`proceed-by-branching.md` covers it. This doc is for the case where **the
+`proceed-by-lock-and-branch.md` covers it. This doc is for the case where **the
 lock is held and its holder is not active.** That task stopped at a natural
 point, ended its turn, and has no awareness of you; it is unfinished, so it
 will want the checkout back. Your work outranks the wait.
@@ -19,7 +19,7 @@ committed on its own `work/<slug>` — its home and checkpoint — so taking the
 checkout loses none of it. Any change beyond untracked files under
 `$SCRATCH_DIR` (if set) means the opposite: uncommitted work that is not yours
 to judge. STOP and ask the user before doing anything else — do not stash,
-commit, or switch on your own. Same rule as `proceed-by-branching.md`.
+commit, or switch on your own. Same rule as `proceed-by-lock-and-branch.md`.
 
 ---
 

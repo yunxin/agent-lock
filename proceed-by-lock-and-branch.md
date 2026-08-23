@@ -1,4 +1,4 @@
-# Proceed by Branching
+# Proceed by Lock and Branch
 
 **When this doc is referenced: take the lock, branch, then carry out the
 task** — no need to pause after branching.
