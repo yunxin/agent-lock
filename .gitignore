@@ -5,3 +5,7 @@ agent-lock.config.sh
 
 # Optional local scratch dir (whatever you set SCRATCH_DIR to; see CONFIG.md).
 scratch/
+
+# Host-generated review threads — never part of the kit.
+.agent-threads/
+.*-comments.json
