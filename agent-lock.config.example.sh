@@ -21,8 +21,9 @@
 # Optional untracked scratch dir to tolerate when the lock/switch guards
 # check for a clean tree (e.g. local-only agent notes/helpers). Empty =
 # strict: any untracked file blocks acquire/switch. Set to a path prefix
-# (no leading ./) to allow untracked files under it, e.g. SCRATCH_DIR=scratch.
-: "${SCRATCH_DIR:=}"
+# (no leading ./). Defaults to `ai`, the conventional vendored folder; set it
+# to empty for a strict check.
+SCRATCH_DIR="${SCRATCH_DIR-ai}"
 
 # Path to the shared working tree. Unused by the core scripts (they act on
 # the current repo); provided for consumers/CI kits that cd to the checkout.

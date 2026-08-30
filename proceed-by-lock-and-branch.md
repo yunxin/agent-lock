@@ -6,7 +6,7 @@ task** — no need to pause after branching.
 **Before the first code edit,** follow the nearest `coding-guide.md` — searching this file's directory, then each parent up the direct chain only (closest wins; siblings/children never searched) — if your project provides one.
 
 **Exception — dirty working tree.** If the working tree has any change
-beyond untracked files under `$SCRATCH_DIR` (if set) when this doc is
+beyond untracked files under `$SCRATCH_DIR` (`ai` by default) when this doc is
 referenced, STOP and ask the user how to handle it *before doing anything
 else*. It may be orphaned work or another task's WIP. Do not auto-stash,
 auto-commit, switch branches, or fall back to a new worktree on your own —
@@ -124,7 +124,7 @@ To pause, commit WIP to `work/<slug>` and release the lock. The branch
 ## 5. Notes
 
 - **Your scratch dir is never committed** — untracked local-only assets
-  under `$SCRATCH_DIR` (`:!$SCRATCH_DIR`), if set.
+  under `$SCRATCH_DIR` (`:!$SCRATCH_DIR`), `ai` by default.
 - **Already edited on the target branch / detached HEAD?** Move the edits
   onto a `work/<slug>` branch before pushing (commit or `git stash`, then
   `git switch -c work/<slug> origin/<target>` under your hold).

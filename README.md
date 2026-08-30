@@ -69,10 +69,10 @@ and [`lock-mechanics.md`](lock-mechanics.md).
   tree-mutating / resource-using phases do.
 - After every `acquire`, put HEAD on your branch. Between holds the
   checkout sits wherever the last holder left it.
-- **Optional scratch dir (`SCRATCH_DIR`).** If you keep local-only notes
-  or helpers in the checkout, set `SCRATCH_DIR` and the lock/switch guards
-  tolerate untracked files under it when checking for a clean tree. Leave
-  it empty (default) for a strict check.
+- **Scratch dir (`SCRATCH_DIR`, default `ai`).** The lock/switch guards
+  tolerate untracked files under it when checking for a clean tree, so
+  vendored agent kits and local-only notes or helpers can live there. Set
+  it empty for a strict check.
 
 ## Building a CI/CD workflow on top
 

@@ -91,10 +91,9 @@
 #   scripts/agent-lock.sh reclaim [--confirmed]# break an ABANDONED hold
 #
 # `acquire`, `release`, `borrow`, `restore`, and `reclaim` require a clean
-# working tree. If
-# SCRATCH_DIR is set (see CONFIG.md), untracked files under it are tolerated
-# (local-only notes/helpers); otherwise the check is strict. `status` is
-# read-only.
+# working tree. Untracked files under SCRATCH_DIR (default `ai`, the
+# conventional vendored folder; see CONFIG.md) are tolerated; set it empty
+# for a strict check. `status` is read-only.
 #
 set -euo pipefail
 
@@ -103,6 +102,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # nearest agent-lock.config.sh up the tree; values already in the env win.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/_load-config.sh"
+# Default scratch dir: the conventional vendored folder. Unset-only, so an
+# explicit empty value (env or config) keeps the clean-tree check strict.
+SCRATCH_DIR="${SCRATCH_DIR-ai}"
 
 LOCK_BRANCH="lock/agent"
 # Ownership / abort-recovery record, resolved through git so subdir runs
@@ -121,7 +123,7 @@ Usage: $0 acquire
 
   acquire   Create $LOCK_BRANCH at current HEAD (a flag — HEAD is NOT
             moved) and write $OWNER_FILE. Preconditions:
-              - working tree clean (untracked under \$SCRATCH_DIR is OK)
+              - working tree clean (untracked under \$SCRATCH_DIR, default ai, is OK)
               - $LOCK_BRANCH does not already exist
             Then branch, switch and edit with plain git under your hold.
 
@@ -207,10 +209,10 @@ status() {
   return 0
 }
 
-# Verify the working tree is clean. If SCRATCH_DIR is set, untracked files
-# under it are tolerated (local-only notes/helpers); otherwise the check is
-# strict. Anything else — modified, staged, or untracked outside it — fails
-# with a listing.
+# Verify the working tree is clean. Untracked files under SCRATCH_DIR
+# (default `ai`) are tolerated; an empty SCRATCH_DIR makes the check strict.
+# Anything else — modified, staged, or untracked outside it — fails with a
+# listing.
 ensure_clean() {
   local label="${1:-working tree}"
   local dirt

@@ -17,7 +17,7 @@ take and the consent `lock-mechanics.md` requires before breaking a lock.
 **A clean tree is the precondition, not a detail.** It means that task's work is
 committed on its own `work/<slug>` — its home and checkpoint — so taking the
 checkout loses none of it. Any change beyond untracked files under
-`$SCRATCH_DIR` (if set) means the opposite: uncommitted work that is not yours
+`$SCRATCH_DIR` (`ai` by default) means the opposite: uncommitted work that is not yours
 to judge. STOP and ask the user before doing anything else — do not stash,
 commit, or switch on your own. Same rule as `proceed-by-lock-and-branch.md`.
 
