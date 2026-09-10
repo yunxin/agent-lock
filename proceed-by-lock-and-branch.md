@@ -3,7 +3,7 @@
 **When this doc is referenced: take the lock, branch, then carry out the
 task** — no need to pause after branching.
 
-**Before the first code edit,** follow the nearest `coding-guide.md` — searching this file's directory, then each parent up the direct chain only (closest wins; siblings/children never searched) — if your project provides one.
+**Before the first code edit,** follow the nearest `coding-guide.md` or similar — searching this file's directory, then each parent up the direct chain only (closest wins; siblings/children never searched) — if your project provides one.
 
 **Exception — dirty working tree.** If the working tree has any change
 beyond untracked files under `$SCRATCH_DIR` (`ai` by default) when this doc is
