@@ -1,89 +1,58 @@
 # agent-lock
 
-A tiny, tool-agnostic coordination layer that lets **several agents (or
-background loops) safely share one git checkout**. A single working tree
-has one `HEAD`, and heavy local test suites often bind host-global ports,
-so two tasks mutating the tree — or running local suites — at once corrupt
-each other. agent-lock serializes those phases with a lock flag, an
-ownership record with abort recovery, and a fail-closed `HEAD` guard.
-Under the lock, branching is plain git.
+Part of [agent-term](https://github.com/albertwujj/agent-term), a terminal for coding agents. This piece lets several agents share one git checkout without getting in each other's way. The terminal shows who holds the checkout as a padlock in each window; the scripts here are what an agent runs to take the lock and release it. To add it, follow [agent-term's setup](https://github.com/albertwujj/agent-term/blob/main/docs/setup.md), then add this repo as a piece of [the suite](https://github.com/albertwujj/agent-term/blob/main/docs/suite.md). [The checkout lock](https://github.com/albertwujj/agent-term/blob/main/docs/lock.md) shows it in use.
 
-It cares nothing about *what* you do under the lock (edit, test, push to
-any review/CI system) — only that the working tree and host-global
-resources are used by one task at a time. Build your push/CI workflow on
-top of it.
+## The problem it solves
 
-Written for AI coding agents (the docs are meant to be referenced
-mid-task), but equally usable as a human checklist.
+A checkout has one `HEAD` and one working tree. When two agents edit at the same time, or run local test suites that bind the same ports, they corrupt each other's work. agent-lock makes those phases take turns: one task holds the lock while it edits or runs tests, and releases it when done. What a task does under the lock is up to it (edit, test, push to any review or CI system); the lock only makes sure that one task at a time uses the working tree and the host's shared resources.
 
-[agent-term](https://github.com/albertwujj/agent-term) understands the lock out of
-the box: it shows which session holds the checkout, live, and whether that
-session is working, idle, or closed. It never interrupts an agent about the
-lock; the scripts below are what refuse a colliding step.
+## How an agent uses it
+
+Start a task by naming [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md) in the prompt; in agent-term, `@proceed-b` completes to it. The agent takes the lock, creates a `work/<slug>` branch from the latest remote tip, does its work, and releases the lock when the phase that needs it is done. The docs are written for the agent to read during a task; a person can follow them as a checklist too.
+
+Two more docs cover the rare cases. [borrow-lock.md](borrow-lock.md) is for a higher-priority session that needs the checkout from a parked task and gives it back afterwards. [lock-mechanics.md](lock-mechanics.md) is the reference on ownership, collisions, and reclaiming an abandoned hold.
+
+In agent-term, a long job the agent starts, such as CI, takes the lock the same way when it changes the code or uses a shared resource. The scripts are plain shell and git, so they also work from any other terminal or automation.
 
 ## Layout
 
 ```
-proceed-by-lock-and-branch.md     # RUNBOOK — acquire -> branch -> work -> release (the entry point)
-borrow-lock.md               # RUNBOOK — rare: take a parked task's lock, put it back
-lock-mechanics.md           # REFERENCE — ownership, collision, reclaim
-CONFIG.md                   # REFERENCE — the three config knobs
+proceed-by-lock-and-branch.md   # runbook: acquire, branch, work, release (the entry point)
+borrow-lock.md                  # runbook, rare: take a parked task's lock, then put it back
+lock-mechanics.md               # reference: ownership, collision, reclaim
+CONFIG.md                       # reference: the three settings
 agent-lock.config.example.sh
 scripts/
   agent-lock.sh   assert-head.sh   _load-config.sh
 ```
 
-Doc naming: a **runbook** (a human invokes it, the agent executes) gets a
-verb-like name; a **reference** (the agent reads it as needed) gets a
-topic noun.
+A runbook is something a person asks for and the agent carries out, so it has a verb-like name. A reference is something the agent reads when it needs to, so it has a topic name.
 
-## Setup
+## Settings
 
 ```bash
-# Copy the template to a file named agent-lock.config.sh, then edit it.
-# Scripts source the NEAREST agent-lock.config.sh (kit root, then up the
-# direct parent chain only — so it can live outside the kit), or $AGENT_LOCK_CONFIG.
-cp agent-lock.config.example.sh agent-lock.config.sh
+cp agent-lock.config.example.sh agent-lock.config.sh   # then edit it
 ```
 
-See [`CONFIG.md`](CONFIG.md). All three knobs have safe defaults, so the
-scripts also run with no config at all.
+The scripts read the nearest `agent-lock.config.sh`: the kit root first, then its parent directories, so the file can live outside the kit. `$AGENT_LOCK_CONFIG` names one directly. The three settings are described in [CONFIG.md](CONFIG.md). All have safe defaults, so the scripts also run with no config file.
 
-## The model
+## How it works
 
-| Piece | File | Role |
-|---|---|---|
-| Lock | [`scripts/agent-lock.sh`](scripts/agent-lock.sh) | `lock/agent` flag ref = "a task owns the checkout": HEAD, the tree, and the host-global resources local runs bind. Created at `HEAD` **without** moving it; atomic ref creation = mutual exclusion in one checkout. Under a hold, HEAD and the tree are the holder's to move with plain git; `release` needs a clean tree, so the next holder starts from committed state. `acquire` / `release` / `status` / `borrow` / `restore` / `reclaim`. |
-| Ownership / abort recovery | same | Owner record (session token, branch at acquire, `nonce`, timestamp, pid): only the holding session can `release`. A held lock is broken only on the user's say-so: `borrow --confirmed` for a parked task (the hold is saved and `restore` puts it back, lock and all, when you are done), `reclaim --confirmed` for an abandoned one. No staleness detection: a holder may wait on the user for as long as it takes, and others wait. See [`lock-mechanics.md`](lock-mechanics.md). |
-| `HEAD` guard | [`scripts/assert-head.sh`](scripts/assert-head.sh) | Fail-closed check that `HEAD` is on the expected branch (+ optional SHA) before any amend/reset/push. Pair with an explicit-refspec push. |
+Three pieces:
 
-The work branch `work/<slug>` is the **home** for a task and doubles as
-the local checkpoint. `lock/agent` is a **singleton flag**, not per-task.
-Lifecycle and rationale: [`proceed-by-lock-and-branch.md`](proceed-by-lock-and-branch.md)
-and [`lock-mechanics.md`](lock-mechanics.md).
+- **The lock.** [`scripts/agent-lock.sh`](scripts/agent-lock.sh) keeps a git ref, `lock/agent`, that means "a task owns the checkout": `HEAD`, the tree, and the shared resources local runs bind. The ref is created at `HEAD` without moving `HEAD`. Git creates refs atomically, so only one task can hold it. While a task holds it, `HEAD` and the tree are that task's to move with plain git. `release` requires a clean tree, so the next holder starts from committed state. The commands are `acquire`, `release`, `status`, `borrow`, `restore`, and `reclaim`.
+- **The owner record.** It says who holds the lock: session token, the branch at acquire, a nonce, a timestamp, and the pid. Only the holding session can `release`. A held lock is broken only when the user says so: `borrow --confirmed` for a parked task (the hold is saved, and `restore` puts it back, lock and all), `reclaim --confirmed` for an abandoned one. There is no staleness timeout: a holder may wait on the user for as long as it takes, and the others wait. Details in [lock-mechanics.md](lock-mechanics.md).
+- **The `HEAD` guard.** [`scripts/assert-head.sh`](scripts/assert-head.sh) checks that `HEAD` is on the expected branch, and optionally at the expected commit, before an amend, reset, or push. It refuses when unsure. Use it with a push that names its refspec.
 
-## Conventions assumed
+The `work/<slug>` branch is the task's home and its local checkpoint. `lock/agent` is one flag for the whole checkout, not one per task. The lifecycle is in [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md).
+
+## Conventions
 
 - One task lives on a `work/<slug>` branch.
-- A single shared checkout. Read-only sessions never need the lock; only
-  tree-mutating / resource-using phases do.
-- After every `acquire`, put HEAD on your branch. Between holds the
-  checkout sits wherever the last holder left it.
-- **Scratch dir (`SCRATCH_DIR`, default `ai`).** The lock/switch guards
-  tolerate untracked files under it when checking for a clean tree, so
-  vendored agent kits and local-only notes or helpers can live there. Set
-  it empty for a strict check.
+- One shared checkout. Sessions that only read never need the lock; only phases that change the tree or use shared resources do.
+- After every `acquire`, put `HEAD` on your branch. Between holds the checkout stays where the last holder left it.
+- Scratch directory (`SCRATCH_DIR`, default `ai`): the clean-tree checks ignore untracked files under it, so vendored agent kits and local notes can live there. Set it empty for a strict check.
 
-## Building a CI/CD workflow on top
+## A CI workflow on top
 
-A push/CI workflow reuses the same primitives: it starts from
-`proceed-by-lock-and-branch.md`, then re-acquires `lock/agent` around each of
-its own resource phases (pushing a change, running a local suite) and
-releases it for long remote waits. After each `acquire` it puts HEAD on
-its branch with plain git. It locates these scripts via an
-`AGENT_LOCK_DIR` it sets, or by putting them on `PATH`.
-
-Such a workflow is optional; agent-lock stands alone with any (or no)
-push/CI workflow. (This note is for maintainers/discovery —
-`proceed-by-lock-and-branch.md` carries the runtime handoff, so an agent never
-needs this README mid-task.)
+A push or CI workflow uses the same scripts. It starts from [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md), takes `lock/agent` again around each phase that uses the tree or a shared resource (pushing a change, running a local suite), and releases it during long remote waits. After each `acquire` it puts `HEAD` on its branch with plain git. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`. Such a workflow is optional; agent-lock works with any push or CI setup, or none. This section is for maintainers: an agent never needs this README during a task, since the runbook carries the handoff.
