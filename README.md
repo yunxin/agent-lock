@@ -17,9 +17,9 @@ and leave ai/ out of .gitignore.
 
 A clone beside the project, or under your home directory, works too ([placement](https://github.com/albertwujj/agent-term/blob/main/docs/conventions.md#placement)).
 
-## How an agent uses it
+## Using it
 
-Start a task by naming [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md) in the prompt; in agent-term, `@proceed-b` completes to it. The agent takes the lock, creates a `work/<slug>` branch from the latest remote tip, does its work, and releases the lock when the phase that needs it is done. When a higher-priority session needs the checkout from a parked task, name [borrow-lock.md](borrow-lock.md) instead; it takes the lock and gives it back afterwards.
+Start a task with `@proceed-b`, which completes to [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md) in the prompt. The agent takes the lock, creates a `work/<slug>` branch from the latest remote tip, does its work, and releases the lock when the phase that needs it is done. When a higher-priority session needs the checkout from a parked task, name [borrow-lock.md](borrow-lock.md) instead (`@borrow-l`); the agent takes the lock and gives it back afterwards.
 
 In agent-term, a long job the agent starts, such as CI, takes the lock the same way when it changes the code or uses a shared resource.
 
