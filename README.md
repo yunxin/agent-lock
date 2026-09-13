@@ -1,6 +1,6 @@
 # agent-lock
 
-A piece of [agent-term](https://github.com/albertwujj/agent-term): the [checkout lock](https://github.com/albertwujj/agent-term/blob/main/docs/lock.md) that lets several agents share one git checkout without getting in each other's way. One task at a time holds the lock while it edits or runs local tests, and the terminal shows who holds it as a padlock in each window.
+A piece of [agent-term](https://github.com/albertwujj/agent-term): the checkout lock that lets several agents share one git checkout without getting in each other's way. How it is used from the terminal is in [the checkout lock](https://github.com/albertwujj/agent-term/blob/main/docs/lock.md).
 
 ## Adding it
 
@@ -12,12 +12,6 @@ and leave ai/ out of .gitignore.
 ```
 
 A clone beside the project, or under your home directory, works too ([placement](https://github.com/albertwujj/agent-term/blob/main/docs/conventions.md#placement)).
-
-## Using it
-
-- **A task.** Start it with `@proceed-b`, which completes to [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md). The agent takes the lock, creates a `work/<slug>` branch from the latest remote tip, does its work, and releases the lock when the phase that needs it is done.
-- **Taking over a parked task's checkout.** Name [borrow-lock.md](borrow-lock.md) (`@borrow-l`). The agent takes the lock and gives it back afterwards.
-- **A long job.** A job the agent starts, such as CI, takes the lock the same way when it changes the code or uses a shared resource.
 
 ## The mechanics
 
@@ -45,6 +39,6 @@ The `work/<slug>` branch is the task's home and its local checkpoint. `lock/agen
 - After every `acquire`, put `HEAD` on your branch. Between holds the checkout stays where the last holder left it.
 - Scratch directory (`SCRATCH_DIR`, default `ai`): the clean-tree checks ignore untracked files under it, so vendored agent kits and local notes can live there. Set it empty for a strict check.
 
-### A CI workflow on top
+### Integrating it
 
-A push or CI workflow can use the same scripts. It takes `lock/agent` around each phase that uses the tree or a shared resource (pushing a change, running a local suite), and releases it during long remote waits. After each `acquire` it puts `HEAD` on its branch with plain git. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`. Such a workflow is optional; agent-lock works with any push or CI setup, or none.
+The scripts are made to be called from another instruction set or skill, such as a CI runbook of your own. Such a doc takes `lock/agent` around each phase that uses the tree or a shared resource (pushing a change, running a local suite), releases it during long remote waits, and puts `HEAD` on its branch after each `acquire`. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`.
