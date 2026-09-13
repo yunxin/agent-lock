@@ -1,20 +1,33 @@
 # agent-lock
 
-Part of [agent-term](https://github.com/albertwujj/agent-term), a terminal for coding agents. This piece lets several agents share one git checkout without getting in each other's way. The terminal shows who holds the checkout as a padlock in each window; the scripts here are what an agent runs to take the lock and release it. To add it, follow [agent-term's setup](https://github.com/albertwujj/agent-term/blob/main/docs/setup.md), then add this repo as a piece of [the suite](https://github.com/albertwujj/agent-term/blob/main/docs/suite.md). [The checkout lock](https://github.com/albertwujj/agent-term/blob/main/docs/lock.md) shows it in use.
+Part of [agent-term](https://github.com/albertwujj/agent-term), a terminal for coding agents. This piece lets several agents share one git checkout without getting in each other's way. The terminal shows who holds the checkout as a padlock in each window; the scripts here are what an agent runs to take the lock and release it. [The checkout lock](https://github.com/albertwujj/agent-term/blob/main/docs/lock.md) shows it in use.
 
 ## The problem it solves
 
 A checkout has one `HEAD` and one working tree. When two agents edit at the same time, or run local test suites that bind the same ports, they corrupt each other's work. agent-lock makes those phases take turns: one task holds the lock while it edits or runs tests, and releases it when done. What a task does under the lock is up to it (edit, test, push to any review or CI system); the lock only makes sure that one task at a time uses the working tree and the host's shared resources.
 
+## Adding it
+
+Ask your agent:
+
+```text
+Clone https://github.com/yunxin/agent-lock into ai/ in this project,
+and leave ai/ out of .gitignore.
+```
+
+A clone beside the project, or under your home directory, works too ([placement](https://github.com/albertwujj/agent-term/blob/main/docs/conventions.md#placement)).
+
 ## How an agent uses it
 
-Start a task by naming [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md) in the prompt; in agent-term, `@proceed-b` completes to it. The agent takes the lock, creates a `work/<slug>` branch from the latest remote tip, does its work, and releases the lock when the phase that needs it is done. The docs are written for the agent to read during a task; a person can follow them as a checklist too.
+Start a task by naming [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md) in the prompt; in agent-term, `@proceed-b` completes to it. The agent takes the lock, creates a `work/<slug>` branch from the latest remote tip, does its work, and releases the lock when the phase that needs it is done. When a higher-priority session needs the checkout from a parked task, name [borrow-lock.md](borrow-lock.md) instead; it takes the lock and gives it back afterwards.
 
-Two more docs cover the rare cases. [borrow-lock.md](borrow-lock.md) is for a higher-priority session that needs the checkout from a parked task and gives it back afterwards. [lock-mechanics.md](lock-mechanics.md) is the reference on ownership, collisions, and reclaiming an abandoned hold.
+In agent-term, a long job the agent starts, such as CI, takes the lock the same way when it changes the code or uses a shared resource.
 
-In agent-term, a long job the agent starts, such as CI, takes the lock the same way when it changes the code or uses a shared resource. The scripts are plain shell and git, so they also work from any other terminal or automation.
+## The mechanics
 
-## Layout
+For another host, or for working on this repo. An agent reads the runbooks during a task, never this README. The docs are written for the agent; a person can follow them as a checklist too, and the scripts are plain shell and git, so they also work from any other terminal or automation.
+
+### Layout
 
 ```
 proceed-by-lock-and-branch.md   # runbook: acquire, branch, work, release (the entry point)
@@ -28,7 +41,7 @@ scripts/
 
 A runbook is something a person asks for and the agent carries out, so it has a verb-like name. A reference is something the agent reads when it needs to, so it has a topic name.
 
-## Settings
+### Settings
 
 ```bash
 cp agent-lock.config.example.sh agent-lock.config.sh   # then edit it
@@ -36,7 +49,7 @@ cp agent-lock.config.example.sh agent-lock.config.sh   # then edit it
 
 The scripts read the nearest `agent-lock.config.sh`: the kit root first, then its parent directories, so the file can live outside the kit. `$AGENT_LOCK_CONFIG` names one directly. The three settings are described in [CONFIG.md](CONFIG.md). All have safe defaults, so the scripts also run with no config file.
 
-## How it works
+### How it works
 
 Three pieces:
 
@@ -46,13 +59,13 @@ Three pieces:
 
 The `work/<slug>` branch is the task's home and its local checkpoint. `lock/agent` is one flag for the whole checkout, not one per task. The lifecycle is in [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md).
 
-## Conventions
+### Conventions
 
 - One task lives on a `work/<slug>` branch.
 - One shared checkout. Sessions that only read never need the lock; only phases that change the tree or use shared resources do.
 - After every `acquire`, put `HEAD` on your branch. Between holds the checkout stays where the last holder left it.
 - Scratch directory (`SCRATCH_DIR`, default `ai`): the clean-tree checks ignore untracked files under it, so vendored agent kits and local notes can live there. Set it empty for a strict check.
 
-## A CI workflow on top
+### A CI workflow on top
 
-A push or CI workflow uses the same scripts. It starts from [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md), takes `lock/agent` again around each phase that uses the tree or a shared resource (pushing a change, running a local suite), and releases it during long remote waits. After each `acquire` it puts `HEAD` on its branch with plain git. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`. Such a workflow is optional; agent-lock works with any push or CI setup, or none. This section is for maintainers: an agent never needs this README during a task, since the runbook carries the handoff.
+A push or CI workflow uses the same scripts. It starts from [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md), takes `lock/agent` again around each phase that uses the tree or a shared resource (pushing a change, running a local suite), and releases it during long remote waits. After each `acquire` it puts `HEAD` on its branch with plain git. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`. Such a workflow is optional; agent-lock works with any push or CI setup, or none.
