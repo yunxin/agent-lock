@@ -47,4 +47,4 @@ The `work/<slug>` branch is the task's home and its local checkpoint. `lock/agen
 
 ### A CI workflow on top
 
-A push or CI workflow uses the same scripts. It starts from [proceed-by-lock-and-branch.md](proceed-by-lock-and-branch.md), takes `lock/agent` again around each phase that uses the tree or a shared resource (pushing a change, running a local suite), and releases it during long remote waits. After each `acquire` it puts `HEAD` on its branch with plain git. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`. Such a workflow is optional; agent-lock works with any push or CI setup, or none.
+A push or CI workflow can use the same scripts. It takes `lock/agent` around each phase that uses the tree or a shared resource (pushing a change, running a local suite), and releases it during long remote waits. After each `acquire` it puts `HEAD` on its branch with plain git. It finds the scripts through `AGENT_LOCK_DIR`, or by putting them on `PATH`. Such a workflow is optional; agent-lock works with any push or CI setup, or none.
