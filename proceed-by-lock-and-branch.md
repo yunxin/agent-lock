@@ -9,7 +9,8 @@ task** — no need to pause after branching.
 beyond untracked files under `$SCRATCH_DIR` when this doc is
 referenced, STOP and ask the user how to handle it *before doing anything
 else*. `$SCRATCH_DIR` is the shell value if set; otherwise the nearest
-`agent-lock.config.sh`, which `scripts/agent-lock.sh` sources; otherwise `ai`. It may be orphaned work or another task's WIP. Do not auto-stash,
+`agent-lock.config.sh`, which `scripts/agent-lock.sh` sources; otherwise `ai`.
+It may be orphaned work or another task's WIP. Do not auto-stash,
 auto-commit, switch branches, or fall back to a new worktree on your own —
 `acquire` refuses a dirty tree precisely so this decision reaches the user.
 Proceed only once the user says how (e.g. "stash it", "it's mine, commit to
